@@ -10,8 +10,9 @@ let player = world.createBody({
 });
 
 player.createFixture({
-  shape: new Circle(Vec2(0, 0), 0.25),
-  density: 0.5,
+  //shape: new Circle(Vec2(0, 0), 0.25),
+  shape: new Circle(Vec2(0, 0), 2.5),
+  density: 0.005,
   friction: 0.0,
   restitution: 0.5,
 });
@@ -20,19 +21,23 @@ const MAP_SIZE = 150;
 
 createWalls(world, MAP_SIZE);
 
-const maxSpeed = 20;
+const maxSpeed = 40;
 
 function applyMovementForceToPlayer(body, keys) {
-  const str = 10;
-  const force = new Vec2(keys.x * str, keys.y * str);
+  const str = 20;
+  let force = new Vec2(keys.x, keys.y);
+
+  if (force.length() > 0) {
+    force = force.clone().mul(str / force.length());
+  }
 
   body.applyForceToCenter(force);
 
   const velocity = body.getLinearVelocity();
-
   if (velocity.length() > maxSpeed) {
     body.setLinearVelocity(velocity.clone().mul(maxSpeed / velocity.length()));
   }
+
   console.log(velocity);
 }
 

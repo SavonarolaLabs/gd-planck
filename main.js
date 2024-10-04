@@ -49,8 +49,6 @@ const keys = {
 
 function addMovementControls(player, keys) {
   document.addEventListener('keydown', (event) => {
-    keys.x = 0;
-    keys.y = 0;
     switch (event.key.toLowerCase()) {
       case 'r':
         reset();
@@ -72,6 +70,21 @@ function addMovementControls(player, keys) {
     }
 
     applyMovementForceToPlayer(player, keys);
+  });
+
+  document.addEventListener('keyup', (event) => {
+    switch (event.key.toLowerCase()) {
+      case 'w':
+      case 's':
+        keys.y = 0;
+        break;
+      case 'a':
+      case 'd':
+        keys.x = 0;
+        break;
+      default:
+        return;
+    }
   });
 }
 

@@ -23,7 +23,7 @@ const scale = 30; // pixels per meter
 const player = {
   body: world.createBody({
     type: 'dynamic',
-    position: Vec2(400 / scale, 300 / scale),
+    position: Vec2(window.innerWidth / 2 / scale, window.innerHeight / 2 / scale),
     fixedRotation: true,
   }),
   radius: 15,
@@ -43,6 +43,15 @@ const keys = {
 
 const bullets = [];
 const enemies = [];
+
+// Shooting state
+let shooting = false;
+let lastShotTime = 0;
+const shotInterval = 100; // Cooldown in milliseconds
+
+// Mouse position
+let mouseX = 0;
+let mouseY = 0;
 
 // Input handling
 document.addEventListener('keydown', (e) => {
@@ -79,33 +88,53 @@ document.addEventListener('keyup', (e) => {
   }
 });
 
-// Shooting mechanics
-canvas.addEventListener('click', (e) => {
+// Update mouse position
+canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
-  const mouseX = e.clientX - rect.left;
-  const mouseY = e.clientY - rect.top;
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+});
 
+shooting = true;
+
+// Start shooting on mousedown
+canvas.addEventListener('mousedown', () => {
+  shooting = !shooting;
+});
+
+// Stop shooting on mouseup
+canvas.addEventListener('mouseup', () => {
+  //shooting = false;
+});
+
+// Shooting function
+function shoot() {
   const playerPos = player.body.getPosition();
   const angle = Math.atan2(mouseY - playerPos.y * scale, mouseX - playerPos.x * scale);
 
+  // Spawn the bullet slightly in front of the player
+  const bulletSpawnDistance = (player.radius + 5) / scale;
+  const bulletX = playerPos.x + Math.cos(angle) * bulletSpawnDistance;
+  const bulletY = playerPos.y + Math.sin(angle) * bulletSpawnDistance;
+
   const bullet = world.createBody({
     type: 'dynamic',
-    position: Vec2(playerPos.x, playerPos.y),
+    position: Vec2(bulletX, bulletY),
     bullet: true,
   });
 
   bullet.createFixture(Circle(5 / scale), {
     density: 1,
     friction: 0,
-    restitution: 0,
+    restitution: 0, // No bouncing!
   });
 
   const velocity = Vec2(Math.cos(angle) * 10, Math.sin(angle) * 10);
   bullet.setLinearVelocity(velocity);
   bullets.push(bullet);
-});
+}
 
-// Spawn enemies periodically
+// Spawn enemies periodically with health
 function spawnEnemy() {
   const side = Math.floor(Math.random() * 4);
   let x, y;
@@ -129,22 +158,26 @@ function spawnEnemy() {
       break;
   }
 
-  const enemy = world.createBody({
-    type: 'dynamic',
-    position: Vec2(x / scale, y / scale),
-  });
+  const enemy = {
+    body: world.createBody({
+      type: 'dynamic',
+      position: Vec2(x / scale, y / scale),
+    }),
+    health: 100, // Max health of the enemy
+    maxHealth: 100,
+  };
 
-  enemy.createFixture(Circle(15 / scale), {
+  enemy.body.createFixture(Circle(15 / scale), {
     density: 1,
     friction: 0.3,
-    restitution: 0.2,
+    restitution: 0.0, // No bouncing!
   });
 
   enemies.push(enemy);
 }
 
 // Game loop
-function update() {
+function update(timestamp) {
   // Player movement
   const velocity = Vec2(0, 0);
   if (keys.up) velocity.y -= player.speed;
@@ -153,14 +186,20 @@ function update() {
   if (keys.right) velocity.x += player.speed;
   player.body.setLinearVelocity(velocity);
 
+  // Handle shooting with cooldown
+  if (shooting && timestamp - lastShotTime > shotInterval) {
+    shoot();
+    lastShotTime = timestamp;
+  }
+
   // Move enemies towards player
   const playerPos = player.body.getPosition();
   enemies.forEach((enemy) => {
-    const enemyPos = enemy.getPosition();
+    const enemyPos = enemy.body.getPosition();
     const direction = Vec2(playerPos.x - enemyPos.x, playerPos.y - enemyPos.y);
     direction.normalize();
     direction.mul(2); // Enemy speed
-    enemy.setLinearVelocity(direction);
+    enemy.body.setLinearVelocity(direction);
   });
 
   // Update physics
@@ -175,11 +214,11 @@ function update() {
   const pos = player.body.getPosition();
   ctx.beginPath();
   ctx.arc(pos.x * scale, pos.y * scale, player.radius, 0, Math.PI * 2);
-  ctx.fillStyle = 'blue';
+  ctx.fillStyle = '#666';
   ctx.fill();
 
   // Draw bullets
-  ctx.fillStyle = 'yellow';
+  ctx.fillStyle = '#eee';
   bullets.forEach((bullet) => {
     const pos = bullet.getPosition();
     ctx.beginPath();
@@ -187,13 +226,29 @@ function update() {
     ctx.fill();
   });
 
-  // Draw enemies
-  ctx.fillStyle = 'red';
+  // Draw enemies and their health bars
+  // Ensure enemies are red
   enemies.forEach((enemy) => {
-    const pos = enemy.getPosition();
+    ctx.fillStyle = 'gray';
+    const pos = enemy.body.getPosition();
     ctx.beginPath();
     ctx.arc(pos.x * scale, pos.y * scale, 15, 0, Math.PI * 2);
     ctx.fill();
+
+    // Draw health bar above enemy
+    const healthBarWidth = 40;
+    const healthBarHeight = 5;
+    const healthPercentage = enemy.health / enemy.maxHealth;
+    const healthBarX = pos.x * scale - healthBarWidth / 2;
+    const healthBarY = pos.y * scale - 25; // Position above the enemy
+
+    // Draw health bar background
+    ctx.fillStyle = 'gray';
+    ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+
+    // Draw health bar foreground
+    ctx.fillStyle = 'green';
+    ctx.fillRect(healthBarX, healthBarY, healthBarWidth * healthPercentage, healthBarHeight);
   });
 
   // Collision detection
@@ -209,16 +264,24 @@ function update() {
 
     // Check bullet-enemy collisions
     for (let j = enemies.length - 1; j >= 0; j--) {
-      const enemyPos = enemies[j].getPosition();
+      const enemyPos = enemies[j].body.getPosition();
       const dx = bulletPos.x - enemyPos.x;
       const dy = bulletPos.y - enemyPos.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
 
       if (distance < (15 + 5) / scale) {
+        // Damage the enemy
+        enemies[j].health -= 50;
+
+        // Remove the bullet even if the enemy doesn't die
         world.destroyBody(bullets[i]);
         bullets.splice(i, 1);
-        world.destroyBody(enemies[j]);
-        enemies.splice(j, 1);
+
+        // Remove enemy if health <= 0
+        if (enemies[j].health <= 0) {
+          world.destroyBody(enemies[j].body);
+          enemies.splice(j, 1);
+        }
         break;
       }
     }

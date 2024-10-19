@@ -5,19 +5,21 @@ const canvas = document.createElement('canvas');
 const ctx = canvas.getContext('2d');
 document.body.appendChild(canvas);
 
+const BASE_SPEED = 3;
+
 // Constants for configuration
 const SCALE = 30; // Pixels per meter
 const WORLD_SCALE = 2; // World is 2x larger than canvas
 const PLAYER_RADIUS = 15; // Player radius in pixels
-const PLAYER_SPEED = 20; // Player speed
+const PLAYER_SPEED = BASE_SPEED * 1.5; // Player speed
 const BULLET_RADIUS = 5; // Bullet radius in pixels
-const BULLET_SPEED = 40; // Bullet speed
+const BULLET_SPEED = BASE_SPEED * 3; // Bullet speed
 const BULLET_DAMAGE = 50; // Damage dealt by bullets
 const BULLET_MAX_DISTANCE_FACTOR = 2; // Multiplier for bullet max distance
 const ENEMY_RADIUS = 15; // Enemy radius in pixels
-const ENEMY_SPEED = 10; // Enemy speed
+const ENEMY_SPEED = BASE_SPEED; // Enemy speed
 const ENEMY_HEALTH = 100; // Enemy health
-const MAX_ENEMIES = 10; // Maximum number of enemies
+const MAX_ENEMIES = 100; // Maximum number of enemies
 const GRID_SIZE = 50; // Size of the grid squares
 const SHOT_INTERVAL = 50; // Time between shots in milliseconds
 const MELEE_DAMAGE = 50; // Damage dealt by melee attacks

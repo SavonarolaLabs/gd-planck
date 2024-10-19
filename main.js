@@ -7,13 +7,13 @@ document.body.appendChild(canvas);
 
 // Constants for configuration
 const SCALE = 30; // Pixels per meter
-const WORLD_SCALE = 2; // World is 5x larger than canvas
+const WORLD_SCALE = 2; // World is 2x larger than canvas
 const PLAYER_RADIUS = 15; // Player radius in pixels
 const PLAYER_SPEED = 15; // Player speed
 const BULLET_RADIUS = 5; // Bullet radius in pixels
 const BULLET_SPEED = 20; // Bullet speed
 const BULLET_DAMAGE = 50; // Damage dealt by bullets
-const BULLET_MAX_DISTANCE_FACTOR = 1; // Multiplier for bullet max distance
+const BULLET_MAX_DISTANCE_FACTOR = 2; // Multiplier for bullet max distance
 const ENEMY_RADIUS = 15; // Enemy radius in pixels
 const ENEMY_SPEED = 10; // Enemy speed
 const ENEMY_HEALTH = 100; // Enemy health
@@ -29,31 +29,87 @@ const CATEGORY_BULLET = 0x0002;
 const CATEGORY_ENEMY = 0x0004;
 const CATEGORY_WALL = 0x0008;
 
-let WORLD_WIDTH = canvas.width * WORLD_SCALE;
-let WORLD_HEIGHT = canvas.height * WORLD_SCALE;
-let BULLET_MAX_DISTANCE = (canvas.width * BULLET_MAX_DISTANCE_FACTOR) / SCALE;
+// Variables that depend on canvas dimensions
+let WORLD_WIDTH;
+let WORLD_HEIGHT;
+let BULLET_MAX_DISTANCE;
+
+// Physics world setup
+const world = World();
+
+// Player and other game objects
+let player;
+const bullets = [];
+const enemies = [];
+const walls = [];
+
+// Arrays to hold bodies to be destroyed after physics step
+const bodiesToDestroy = [];
+const bulletsToRemove = [];
+const enemiesToRemove = [];
+
+// Camera position
+let cameraX = 0;
+let cameraY = 0;
+
+// Mouse position
+let mouseX = 0;
+let mouseY = 0;
+
+// Game state
+const keys = {
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+};
+
+// Shooting state
+let shooting = false;
+let lastShotTime = 0;
+
+// Define static spawn points within walls
+let spawnPoints = [];
 
 // Fullscreen canvas and resizing
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 
-  // Update world dimensions based on canvas size
+  // Recalculate world dimensions
   WORLD_WIDTH = canvas.width * WORLD_SCALE;
   WORLD_HEIGHT = canvas.height * WORLD_SCALE;
+  BULLET_MAX_DISTANCE = (canvas.width * BULLET_MAX_DISTANCE_FACTOR) / SCALE;
 
-  // Recreate walls with new dimensions if necessary
+  // Recreate walls and update game objects
+  recreateWorld();
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
-// Variables that depend on canvas dimensions
+// Function to recreate the world
+function recreateWorld() {
+  // Remove all bodies from the world
+  for (let body = world.getBodyList(); body; ) {
+    const nextBody = body.getNext();
+    world.destroyBody(body);
+    body = nextBody;
+  }
 
-// Physics world setup
-const world = World();
+  // Clear arrays without changing references
+  bullets.length = 0;
+  enemies.length = 0;
+  walls.length = 0;
 
-// Define level boundaries (walls)
-const walls = [];
+  // Recreate walls
+  createWalls();
+
+  // Recreate player
+  createPlayer();
+
+  // Recreate spawn points
+  createSpawnPoints();
+}
 
 // Create walls with collision filters
 function createWalls() {
@@ -94,48 +150,44 @@ function createWalls() {
   );
 }
 
-// Create walls initially
-createWalls();
+// Create player
+function createPlayer() {
+  player = {
+    body: world.createBody({
+      type: 'dynamic',
+      position: Vec2(WORLD_WIDTH / 2 / SCALE, WORLD_HEIGHT / 2 / SCALE),
+      fixedRotation: true,
+    }),
+    radius: PLAYER_RADIUS,
+    speed: PLAYER_SPEED,
+  };
 
-// Player
-const player = {
-  body: world.createBody({
-    type: 'dynamic',
-    position: Vec2(WORLD_WIDTH / 2 / SCALE, WORLD_HEIGHT / 2 / SCALE),
-    fixedRotation: true,
-  }),
-  radius: PLAYER_RADIUS,
-  speed: PLAYER_SPEED,
-  bullets: [],
-};
+  player.body.createFixture(Circle(PLAYER_RADIUS / SCALE), {
+    density: 1,
+    friction: 0.3,
+    restitution: 0.0,
+    userData: 'player',
+    filterCategoryBits: CATEGORY_PLAYER,
+    filterMaskBits: CATEGORY_ENEMY | CATEGORY_WALL,
+  });
+}
 
-player.body.createFixture(Circle(PLAYER_RADIUS / SCALE), {
-  density: 1,
-  friction: 0.3,
-  restitution: 0.0,
-  userData: 'player',
-  filterCategoryBits: CATEGORY_PLAYER,
-  filterMaskBits: CATEGORY_ENEMY | CATEGORY_WALL,
-});
+// Create spawn points
+function createSpawnPoints() {
+  spawnPoints = [
+    { x: 200, y: 200 },
+    { x: WORLD_WIDTH - 200, y: 200 },
+    { x: 200, y: WORLD_HEIGHT - 200 },
+    { x: WORLD_WIDTH - 200, y: WORLD_HEIGHT - 200 },
+    { x: WORLD_WIDTH / 2, y: 200 },
+    { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT - 200 },
+    { x: 200, y: WORLD_HEIGHT / 2 },
+    { x: WORLD_WIDTH - 200, y: WORLD_HEIGHT / 2 },
+  ];
+}
 
-// Game state
-const keys = {
-  up: false,
-  down: false,
-  left: false,
-  right: false,
-};
-
-const bullets = [];
-const enemies = [];
-
-// Shooting state
-let shooting = false;
-let lastShotTime = 0;
-
-// Mouse position
-let mouseX = 0;
-let mouseY = 0;
+// Initial world creation
+recreateWorld();
 
 // Input handling
 document.addEventListener('keydown', (e) => {
@@ -189,22 +241,6 @@ canvas.addEventListener('mouseup', () => {
   shooting = false;
 });
 
-// Camera position
-let cameraX = 0;
-let cameraY = 0;
-
-// Define static spawn points within walls
-const spawnPoints = [
-  { x: 200, y: 200 },
-  { x: WORLD_WIDTH - 200, y: 200 },
-  { x: 200, y: WORLD_HEIGHT - 200 },
-  { x: WORLD_WIDTH - 200, y: WORLD_HEIGHT - 200 },
-  { x: WORLD_WIDTH / 2, y: 200 },
-  { x: WORLD_WIDTH / 2, y: WORLD_HEIGHT - 200 },
-  { x: 200, y: WORLD_HEIGHT / 2 },
-  { x: WORLD_WIDTH - 200, y: WORLD_HEIGHT / 2 },
-];
-
 // Shooting function
 function shoot() {
   const playerPos = player.body.getPosition();
@@ -227,14 +263,18 @@ function shoot() {
     // Perform melee attack
     enemyInRange.health -= MELEE_DAMAGE;
     if (enemyInRange.health <= 0) {
-      world.destroyBody(enemyInRange.body);
-      enemies.splice(enemies.indexOf(enemyInRange), 1);
+      bodiesToDestroy.push(enemyInRange.body);
+      enemiesToRemove.push(enemyInRange);
     }
   } else {
     // Spawn the bullet slightly in front of the player
     const bulletSpawnDistance = (PLAYER_RADIUS + BULLET_RADIUS + 1) / SCALE;
-    const bulletX = playerPos.x + Math.cos(angle) * bulletSpawnDistance;
-    const bulletY = playerPos.y + Math.sin(angle) * bulletSpawnDistance;
+    let bulletX = playerPos.x + Math.cos(angle) * bulletSpawnDistance;
+    let bulletY = playerPos.y + Math.sin(angle) * bulletSpawnDistance;
+
+    // Ensure bullet spawns within world boundaries
+    bulletX = Math.min(Math.max(bulletX, BULLET_RADIUS / SCALE), WORLD_WIDTH / SCALE - BULLET_RADIUS / SCALE);
+    bulletY = Math.min(Math.max(bulletY, BULLET_RADIUS / SCALE), WORLD_HEIGHT / SCALE - BULLET_RADIUS / SCALE);
 
     const bullet = world.createBody({
       type: 'dynamic',
@@ -249,7 +289,7 @@ function shoot() {
       restitution: 0, // No bouncing!
       userData: 'bullet',
       filterCategoryBits: CATEGORY_BULLET,
-      filterMaskBits: CATEGORY_ENEMY | CATEGORY_WALL,
+      filterMaskBits: CATEGORY_ENEMY | CATEGORY_WALL, // Bullets collide with enemies and walls only
     });
 
     const velocity = Vec2(Math.cos(angle) * BULLET_SPEED, Math.sin(angle) * BULLET_SPEED);
@@ -312,9 +352,9 @@ world.on('begin-contact', (contact) => {
     let bulletFixture = userDataA === 'bullet' ? fixtureA : fixtureB;
     let bulletBody = bulletFixture.getBody();
 
-    // Remove bullet
-    world.destroyBody(bulletBody);
-    bullets.splice(bullets.indexOf(bulletBody), 1);
+    // Mark bullet for destruction
+    bodiesToDestroy.push(bulletBody);
+    bulletsToRemove.push(bulletBody);
   }
 
   // Bullet hits enemy
@@ -331,14 +371,15 @@ world.on('begin-contact', (contact) => {
       // Reduce enemy's health
       enemy.health -= BULLET_DAMAGE;
       if (enemy.health <= 0) {
-        world.destroyBody(enemyBody);
-        enemies.splice(enemies.indexOf(enemy), 1);
+        // Mark enemy for destruction
+        bodiesToDestroy.push(enemyBody);
+        enemiesToRemove.push(enemy);
       }
     }
 
-    // Remove bullet
-    world.destroyBody(bulletBody);
-    bullets.splice(bullets.indexOf(bulletBody), 1);
+    // Mark bullet for destruction
+    bodiesToDestroy.push(bulletBody);
+    bulletsToRemove.push(bulletBody);
   }
 });
 
@@ -370,6 +411,52 @@ function update(timestamp) {
 
   // Update physics
   world.step(1 / 60);
+
+  // Destroy bodies that were marked for destruction
+  for (let body of bodiesToDestroy) {
+    world.destroyBody(body);
+  }
+  bodiesToDestroy.length = 0;
+
+  // Remove bullets from bullets array
+  for (let bulletBody of bulletsToRemove) {
+    let index = bullets.findIndex((b) => b === bulletBody);
+    if (index !== -1) {
+      bullets.splice(index, 1);
+    }
+  }
+  bulletsToRemove.length = 0;
+
+  // Remove enemies from enemies array
+  for (let enemy of enemiesToRemove) {
+    let index = enemies.indexOf(enemy);
+    if (index !== -1) {
+      enemies.splice(index, 1);
+    }
+  }
+  enemiesToRemove.length = 0;
+
+  // Remove bullets that have traveled max distance
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const bullet = bullets[i];
+    const bulletPos = bullet.getPosition();
+
+    const startPos = bullet.startPosition;
+    const distanceTraveled = bulletPos.clone().sub(startPos).length();
+
+    if (distanceTraveled > BULLET_MAX_DISTANCE) {
+      bodiesToDestroy.push(bullet);
+      bulletsToRemove.push(bullet);
+      continue;
+    }
+
+    // Remove bullets that are off world
+    if (bulletPos.x < -1 || bulletPos.x > WORLD_WIDTH / SCALE + 1 || bulletPos.y < -1 || bulletPos.y > WORLD_HEIGHT / SCALE + 1) {
+      bodiesToDestroy.push(bullet);
+      bulletsToRemove.push(bullet);
+      continue;
+    }
+  }
 
   // Update camera position to center on player, clamped to level boundaries
   cameraX = playerPos.x * SCALE - canvas.width / 2;
@@ -491,28 +578,6 @@ function update(timestamp) {
   ctx.textAlign = 'right';
   ctx.fillText(`Enemies: ${enemies.length}  Bullets: ${bullets.length}`, canvas.width - 10, 20);
 
-  // Remove bullets that have traveled max distance
-  for (let i = bullets.length - 1; i >= 0; i--) {
-    const bullet = bullets[i];
-    const bulletPos = bullet.getPosition();
-
-    const startPos = bullet.startPosition;
-    const distanceTraveled = bulletPos.clone().sub(startPos).length();
-
-    if (distanceTraveled > BULLET_MAX_DISTANCE) {
-      world.destroyBody(bullet);
-      bullets.splice(i, 1);
-      continue;
-    }
-
-    // Remove bullets that are off world
-    if (bulletPos.x < -1 || bulletPos.x > WORLD_WIDTH / SCALE + 1 || bulletPos.y < -1 || bulletPos.y > WORLD_HEIGHT / SCALE + 1) {
-      world.destroyBody(bullet);
-      bullets.splice(i, 1);
-      continue;
-    }
-  }
-
   // Spawn new enemies
   if (Math.random() < 0.02) {
     spawnEnemy();
@@ -521,5 +586,5 @@ function update(timestamp) {
   requestAnimationFrame(update);
 }
 
-// Start the game
+// Start the game loop
 update();

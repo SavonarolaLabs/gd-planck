@@ -1,4 +1,4 @@
-import { World, Vec2, Circle } from 'planck';
+import { World, Vec2, Circle, Edge } from 'planck';
 
 // Canvas setup
 const canvas = document.createElement('canvas');
@@ -9,8 +9,6 @@ document.body.appendChild(canvas);
 function resizeCanvas() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
@@ -19,19 +17,47 @@ resizeCanvas();
 const world = World();
 const scale = 30; // pixels per meter
 
+// Define game world size (5x larger than canvas)
+const worldWidth = canvas.width * 1.5;
+const worldHeight = canvas.height * 1.5;
+
+// Define level boundaries (walls)
+const walls = [];
+
+// Left wall
+const leftWall = world.createBody().createFixture(Edge(Vec2(0, 0), Vec2(0, worldHeight / scale)), { userData: 'wall' });
+walls.push(leftWall);
+
+// Right wall
+const rightWall = world.createBody().createFixture(Edge(Vec2(worldWidth / scale, 0), Vec2(worldWidth / scale, worldHeight / scale)), { userData: 'wall' });
+walls.push(rightWall);
+
+// Top wall
+const topWall = world.createBody().createFixture(Edge(Vec2(0, 0), Vec2(worldWidth / scale, 0)), { userData: 'wall' });
+walls.push(topWall);
+
+// Bottom wall
+const bottomWall = world.createBody().createFixture(Edge(Vec2(0, worldHeight / scale), Vec2(worldWidth / scale, worldHeight / scale)), { userData: 'wall' });
+walls.push(bottomWall);
+
 // Player
 const player = {
   body: world.createBody({
     type: 'dynamic',
-    position: Vec2(window.innerWidth / 2 / scale, window.innerHeight / 2 / scale),
+    position: Vec2(worldWidth / 2 / scale, worldHeight / 2 / scale),
     fixedRotation: true,
   }),
   radius: 15,
-  speed: 5,
+  speed: 15, // Increased speed from 5 to 15
   bullets: [],
 };
 
-player.body.createFixture(Circle(player.radius / scale));
+player.body.createFixture(Circle(player.radius / scale), {
+  density: 1,
+  friction: 0.3,
+  restitution: 0.0,
+  userData: 'player',
+});
 
 // Game state
 const keys = {
@@ -45,9 +71,9 @@ const bullets = [];
 const enemies = [];
 
 // Shooting state
-let shooting = false;
+let shooting = true;
 let lastShotTime = 0;
-const shotInterval = 100; // Cooldown in milliseconds
+const shotInterval = 50; // Cooldown in milliseconds
 
 // Mouse position
 let mouseX = 0;
@@ -88,14 +114,12 @@ document.addEventListener('keyup', (e) => {
   }
 });
 
-// Update mouse position
+// Update mouse position relative to the game world
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
-  mouseX = e.clientX - rect.left;
-  mouseY = e.clientY - rect.top;
+  mouseX = e.clientX - rect.left + cameraX;
+  mouseY = e.clientY - rect.top + cameraY;
 });
-
-shooting = true;
 
 // Start shooting on mousedown
 canvas.addEventListener('mousedown', () => {
@@ -106,6 +130,25 @@ canvas.addEventListener('mousedown', () => {
 canvas.addEventListener('mouseup', () => {
   //shooting = false;
 });
+
+// Camera position
+let cameraX = 0;
+let cameraY = 0;
+
+// Define static spawn points within walls
+const spawnPoints = [
+  { x: 200, y: 200 },
+  { x: worldWidth - 200, y: 200 },
+  { x: 200, y: worldHeight - 200 },
+  { x: worldWidth - 200, y: worldHeight - 200 },
+  { x: worldWidth / 2, y: 200 },
+  { x: worldWidth / 2, y: worldHeight - 200 },
+  { x: 200, y: worldHeight / 2 },
+  { x: worldWidth - 200, y: worldHeight / 2 },
+];
+
+// Max number of enemies
+const maxEnemies = 10;
 
 // Shooting function
 function shoot() {
@@ -121,42 +164,36 @@ function shoot() {
     type: 'dynamic',
     position: Vec2(bulletX, bulletY),
     bullet: true,
+    fixedRotation: true,
   });
 
   bullet.createFixture(Circle(5 / scale), {
     density: 1,
     friction: 0,
     restitution: 0, // No bouncing!
+    userData: 'bullet',
   });
 
-  const velocity = Vec2(Math.cos(angle) * 10, Math.sin(angle) * 10);
+  const velocity = Vec2(Math.cos(angle) * 20, Math.sin(angle) * 20); // Increased bullet speed
   bullet.setLinearVelocity(velocity);
+
+  // Add a custom property to track bullet distance traveled
+  bullet.startPosition = bullet.getPosition().clone();
+
   bullets.push(bullet);
 }
 
 // Spawn enemies periodically with health
 function spawnEnemy() {
-  const side = Math.floor(Math.random() * 4);
-  let x, y;
-
-  switch (side) {
-    case 0: // top
-      x = Math.random() * canvas.width;
-      y = -20;
-      break;
-    case 1: // right
-      x = canvas.width + 20;
-      y = Math.random() * canvas.height;
-      break;
-    case 2: // bottom
-      x = Math.random() * canvas.width;
-      y = canvas.height + 20;
-      break;
-    case 3: // left
-      x = -20;
-      y = Math.random() * canvas.height;
-      break;
+  // Limit the number of enemies
+  if (enemies.length >= maxEnemies) {
+    return;
   }
+
+  // Choose a random spawn point
+  const spawnPoint = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
+  const x = spawnPoint.x;
+  const y = spawnPoint.y;
 
   const enemy = {
     body: world.createBody({
@@ -165,16 +202,40 @@ function spawnEnemy() {
     }),
     health: 100, // Max health of the enemy
     maxHealth: 100,
+    speed: 10, // Increased enemy speed
   };
 
   enemy.body.createFixture(Circle(15 / scale), {
     density: 1,
     friction: 0.3,
     restitution: 0.0, // No bouncing!
+    userData: 'enemy',
   });
+
+  // Make sure enemies are affected by walls
+  enemy.body.setLinearDamping(0.5); // Add some damping
 
   enemies.push(enemy);
 }
+
+// Collision handling
+world.on('begin-contact', (contact) => {
+  const fixtureA = contact.getFixtureA();
+  const fixtureB = contact.getFixtureB();
+
+  const userDataA = fixtureA.getUserData();
+  const userDataB = fixtureB.getUserData();
+
+  // Bullet hits wall
+  if ((userDataA === 'bullet' && userDataB === 'wall') || (userDataA === 'wall' && userDataB === 'bullet')) {
+    let bulletFixture = userDataA === 'bullet' ? fixtureA : fixtureB;
+    let bulletBody = bulletFixture.getBody();
+
+    // Remove bullet
+    world.destroyBody(bulletBody);
+    bullets.splice(bullets.indexOf(bulletBody), 1);
+  }
+});
 
 // Game loop
 function update(timestamp) {
@@ -198,22 +259,89 @@ function update(timestamp) {
     const enemyPos = enemy.body.getPosition();
     const direction = Vec2(playerPos.x - enemyPos.x, playerPos.y - enemyPos.y);
     direction.normalize();
-    direction.mul(2); // Enemy speed
+    direction.mul(enemy.speed); // Use enemy's speed
     enemy.body.setLinearVelocity(direction);
   });
 
   // Update physics
   world.step(1 / 60);
 
+  // Update camera position to center on player, clamped to level boundaries
+  cameraX = playerPos.x * scale - canvas.width / 2;
+  cameraY = playerPos.y * scale - canvas.height / 2;
+
+  // Clamp camera to level boundaries
+  cameraX = Math.max(0, Math.min(cameraX, worldWidth - canvas.width));
+  cameraY = Math.max(0, Math.min(cameraY, worldHeight - canvas.height));
+
   // Clear canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Save context and translate
+  ctx.save();
+  ctx.translate(-cameraX, -cameraY);
+
+  // Draw ground grid
   ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, worldWidth, worldHeight);
+
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  const gridSize = 50;
+
+  for (let x = 0; x <= worldWidth; x += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, worldHeight);
+    ctx.stroke();
+  }
+
+  for (let y = 0; y <= worldHeight; y += gridSize) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(worldWidth, y);
+    ctx.stroke();
+  }
+
+  // Draw level walls
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 5;
+
+  // Left wall
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, worldHeight);
+  ctx.stroke();
+
+  // Right wall
+  ctx.beginPath();
+  ctx.moveTo(worldWidth, 0);
+  ctx.lineTo(worldWidth, worldHeight);
+  ctx.stroke();
+
+  // Top wall
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(worldWidth, 0);
+  ctx.stroke();
+
+  // Bottom wall
+  ctx.beginPath();
+  ctx.moveTo(0, worldHeight);
+  ctx.lineTo(worldWidth, worldHeight);
+  ctx.stroke();
+
+  // Draw spawn points
+  ctx.fillStyle = 'yellow';
+  spawnPoints.forEach((point) => {
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+  });
 
   // Draw player
-  const pos = player.body.getPosition();
   ctx.beginPath();
-  ctx.arc(pos.x * scale, pos.y * scale, player.radius, 0, Math.PI * 2);
+  ctx.arc(playerPos.x * scale, playerPos.y * scale, player.radius, 0, Math.PI * 2);
   ctx.fillStyle = '#666';
   ctx.fill();
 
@@ -227,9 +355,8 @@ function update(timestamp) {
   });
 
   // Draw enemies and their health bars
-  // Ensure enemies are red
   enemies.forEach((enemy) => {
-    ctx.fillStyle = 'gray';
+    ctx.fillStyle = 'red';
     const pos = enemy.body.getPosition();
     ctx.beginPath();
     ctx.arc(pos.x * scale, pos.y * scale, 15, 0, Math.PI * 2);
@@ -251,13 +378,34 @@ function update(timestamp) {
     ctx.fillRect(healthBarX, healthBarY, healthBarWidth * healthPercentage, healthBarHeight);
   });
 
+  // Restore context
+  ctx.restore();
+
+  // Draw object counter at top right
+  ctx.fillStyle = 'white';
+  ctx.font = '16px Arial';
+  ctx.textAlign = 'right';
+  ctx.fillText(`Enemies: ${enemies.length}  Bullets: ${bullets.length}`, canvas.width - 10, 20);
+
   // Collision detection
   for (let i = bullets.length - 1; i >= 0; i--) {
-    const bulletPos = bullets[i].getPosition();
+    const bullet = bullets[i];
+    const bulletPos = bullet.getPosition();
 
-    // Remove bullets that are off screen
-    if (bulletPos.x < -1 || bulletPos.x > canvas.width / scale + 1 || bulletPos.y < -1 || bulletPos.y > canvas.height / scale + 1) {
-      world.destroyBody(bullets[i]);
+    // Remove bullets that have traveled max distance
+    const maxBulletDistance = canvas.width / scale; // Max distance bullets can travel
+    const startPos = bullet.startPosition;
+    const distanceTraveled = bulletPos.clone().sub(startPos).length();
+
+    if (distanceTraveled > maxBulletDistance) {
+      world.destroyBody(bullet);
+      bullets.splice(i, 1);
+      continue;
+    }
+
+    // Remove bullets that are off world
+    if (bulletPos.x < -1 || bulletPos.x > worldWidth / scale + 1 || bulletPos.y < -1 || bulletPos.y > worldHeight / scale + 1) {
+      world.destroyBody(bullet);
       bullets.splice(i, 1);
       continue;
     }
@@ -274,7 +422,7 @@ function update(timestamp) {
         enemies[j].health -= 50;
 
         // Remove the bullet even if the enemy doesn't die
-        world.destroyBody(bullets[i]);
+        world.destroyBody(bullet);
         bullets.splice(i, 1);
 
         // Remove enemy if health <= 0
